@@ -589,6 +589,13 @@ Each application received complete, production-ready CLI interfaces — not demo
 <td align="center">✅ 22</td>
 </tr>
 <tr>
+<td align="center"><strong>🎵 MuseScore</strong></td>
+<td>Music Notation</td>
+<td><code>cli-anything-musescore</code></td>
+<td>mscore CLI (MSCX/MusicXML)</td>
+<td align="center">✅ 56</td>
+</tr>
+<tr>
 <td align="center"><strong>📐 Draw.io</strong></td>
 <td>Diagramming</td>
 <td><code>cli-anything-drawio</code></td>
@@ -737,6 +744,7 @@ cli-anything/
 ├── 🎞️ kdenlive/agent-harness/           # Kdenlive CLI (155 tests)
 ├── 🎬 shotcut/agent-harness/            # Shotcut CLI (154 tests)
 ├── 📞 zoom/agent-harness/               # Zoom CLI (22 tests)
+├── 🎵 musescore/agent-harness/          # MuseScore CLI (56 tests)
 ├── 📐 drawio/agent-harness/             # Draw.io CLI (138 tests)
 ├── 🧜 mermaid/agent-harness/            # Mermaid Live Editor CLI (10 tests)
 ├── ✨ anygen/agent-harness/             # AnyGen CLI (50 tests)

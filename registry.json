@@ -254,6 +254,20 @@
       "category": "ai",
       "contributor": "Alex-wuhu",
       "contributor_url": "https://github.com/Alex-wuhu"
+    },
+    {
+      "name": "musescore",
+      "display_name": "MuseScore",
+      "version": "1.0.0",
+      "description": "CLI for music notation — transpose, export PDF/audio/MIDI, extract parts, manage instruments",
+      "requires": "MuseScore 4 (musescore.org)",
+      "homepage": "https://musescore.org",
+      "install_cmd": "pip install git+https://github.com/HKUDS/CLI-Anything.git#subdirectory=musescore/agent-harness",
+      "entry_point": "cli-anything-musescore",
+      "skill_md": "musescore/agent-harness/cli_anything/musescore/skills/SKILL.md",
+      "category": "music",
+      "contributor": "tamvicky",
+      "contributor_url": "https://github.com/tamvicky"
     }
   ]
 }

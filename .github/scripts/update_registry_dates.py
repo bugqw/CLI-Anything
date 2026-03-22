@@ -1,25 +1,28 @@
 #!/usr/bin/env python3
 """Update registry-dates.json with last modified dates from harness directories."""
 import json
-import os
+import subprocess
 from pathlib import Path
 from datetime import datetime
 
 def get_last_modified(harness_path):
-    """Get the most recent modification time from a harness directory."""
-    latest = 0
-    for root, _, files in os.walk(harness_path):
-        for file in files:
-            if file.endswith(('.py', '.md', '.txt', '.json')):
-                fpath = os.path.join(root, file)
-                mtime = os.path.getmtime(fpath)
-                latest = max(latest, mtime)
-    return datetime.fromtimestamp(latest).strftime('%Y-%m-%d') if latest else None
+    """Get the most recent git commit date for files in a harness directory."""
+    try:
+        result = subprocess.run(
+            ['git', 'log', '-1', '--format=%ct', '--', str(harness_path)],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        timestamp = int(result.stdout.strip())
+        return datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d')
+    except (subprocess.CalledProcessError, ValueError):
+        return None
 
 def main():
     repo_root = Path(__file__).parent.parent.parent
     registry_path = repo_root / 'registry.json'
-    dates_path = repo_root / 'docs' / 'registry-dates.json'
+    dates_path = repo_root / 'docs' / 'hub' / 'registry-dates.json'
 
     with open(registry_path) as f:
         data = json.load(f)

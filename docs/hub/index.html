@@ -135,17 +135,22 @@
     .search:focus { border-color: var(--accent); }
 
     .sort-select {
-      padding: 0.6rem 1rem;
-      background: var(--surface);
+      padding: 0.6rem 2.5rem 0.6rem 1rem;
+      background: var(--surface) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 12 12"><path fill="%238b949e" d="M6 9L2 5h8z"/></svg>') no-repeat right 0.75rem center;
       border: 1px solid var(--border);
       border-radius: 6px;
       color: var(--text);
-      font-size: 0.95rem;
+      font-size: 0.9rem;
       outline: none;
       cursor: pointer;
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      min-width: 180px;
     }
 
     .sort-select:focus { border-color: var(--accent); }
+    .sort-select:hover { border-color: var(--accent); }
 
     .filter-btn {
       padding: 0.45rem 0.85rem;

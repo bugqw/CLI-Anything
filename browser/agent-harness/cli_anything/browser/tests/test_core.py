@@ -340,10 +340,10 @@ class TestFsModule:
 
             result = fs.grep_elements(sess, "Login")
 
-            mock_grep.assert_called_once_with("Login", "/", use_daemon=False)
+            mock_grep.assert_called_once_with("Login", use_daemon=False)
 
     def test_grep_elements_with_path(self):
-        """Grepping with path uses that path."""
+        """Grepping with path still calls backend (path not forwarded to DOMShell)."""
         sess = Session()
 
         with patch("cli_anything.browser.core.fs.backend.grep") as mock_grep:
@@ -351,7 +351,7 @@ class TestFsModule:
 
             result = fs.grep_elements(sess, "Login", "/main")
 
-            mock_grep.assert_called_once_with("Login", "/main", use_daemon=False)
+            mock_grep.assert_called_once_with("Login", use_daemon=False)
 
 
 # ── Daemon Mode Tests ────────────────────────────────────────────

@@ -111,6 +111,5 @@ def grep_elements(session: "Session", pattern: str, path: str = "") -> dict:
         >>> grep_elements(session, "Login")
         {"matches": ["/main/button[0]", "/main/link[1]"]}
     """
-    target_path = path if path else session.working_dir
     use_daemon = session.daemon_mode
-    return backend.grep(pattern, target_path, use_daemon=use_daemon)
+    return backend.grep(pattern, use_daemon=use_daemon)

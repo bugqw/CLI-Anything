@@ -35,6 +35,9 @@ def add_shape(session: Session, shape_type: str = "rectangle",
     if not session.is_open:
         raise RuntimeError("No project is open")
 
+    if cell_id is not None and drawio_xml.find_cell_by_id(session.root, cell_id, diagram_index) is not None:
+        raise ValueError(f"Cell ID already exists: {cell_id}")
+
     session.checkpoint()
     cell_id = drawio_xml.add_vertex(
         session.root, shape_type, x, y, width, height, label,

@@ -38,6 +38,9 @@ def add_connector(session: Session, source_id: str, target_id: str,
     if drawio_xml.find_cell_by_id(session.root, target_id, diagram_index) is None:
         raise ValueError(f"Target cell not found: {target_id}")
 
+    if edge_id is not None and drawio_xml.find_cell_by_id(session.root, edge_id, diagram_index) is not None:
+        raise ValueError(f"Cell ID already exists: {edge_id}")
+
     session.checkpoint()
     edge_id = drawio_xml.add_edge(
         session.root, source_id, target_id, edge_style, label,

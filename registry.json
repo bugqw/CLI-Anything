@@ -384,7 +384,6 @@
       "contributor_url": "https://github.com/levishilf"
     },
     {
- feat/add-intelwatch-harness
       "name": "intelwatch",
       "display_name": "Intelwatch",
       "version": "1.0.0",
@@ -397,7 +396,7 @@
       "category": "osint",
       "contributor": "ashroth",
       "contributor_url": "https://github.com/ashroth"
-
+    },
       "name": "clibrowser",
       "display_name": "clibrowser",
       "version": "0.1.0",

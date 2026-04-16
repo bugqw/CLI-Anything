@@ -81,6 +81,7 @@
 !/rms/
 !/renderdoc/
 !/cloudcompare/
+!/unrealinsights/
 
 # Step 5: Inside each software dir, ignore everything (including dotfiles)
 /gimp/*
@@ -137,6 +138,8 @@
 /renderdoc/.*
 /cloudcompare/*
 /cloudcompare/.*
+/unrealinsights/*
+/unrealinsights/.*
 
 # Step 6: ...except agent-harness/
 !/gimp/agent-harness/
@@ -168,6 +171,7 @@
 !/rms/agent-harness/
 !/renderdoc/agent-harness/
 !/cloudcompare/agent-harness/
+!/unrealinsights/agent-harness/
 
 # Step 7: Ignore build artifacts within allowed dirs
 **/__pycache__/

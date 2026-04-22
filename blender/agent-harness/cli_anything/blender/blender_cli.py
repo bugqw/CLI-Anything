@@ -32,6 +32,7 @@ from cli_anything.blender.core import modifiers as mod_mod
 from cli_anything.blender.core import lighting as light_mod
 from cli_anything.blender.core import animation as anim_mod
 from cli_anything.blender.core import render as render_mod
+from cli_anything.blender.core import preview as preview_mod
 
 # Global session state
 _session: Optional[Session] = None
@@ -813,6 +814,50 @@ def render_script(output_path, frame, animation):
     click.echo(script)
 
 
+@cli.group("preview")
+def preview_group():
+    """Preview bundle capture and inspection."""
+    pass
+
+
+@preview_group.command("recipes")
+@handle_error
+def preview_recipes():
+    """List available preview recipes."""
+    output(preview_mod.list_recipes(), "Preview recipes:")
+
+
+@preview_group.command("capture")
+@click.option("--recipe", default="quick", help="Preview recipe name")
+@click.option("--force", is_flag=True, help="Bypass preview cache")
+@click.option("--root-dir", default=None, help="Override preview bundle root directory")
+@handle_error
+def preview_capture(recipe, force, root_dir):
+    """Capture a preview bundle for the active scene."""
+    sess = get_session()
+    result = preview_mod.capture(
+        sess,
+        recipe=recipe,
+        force=force,
+        root_dir=root_dir,
+        command=f"cli-anything-blender --project {sess.project_path or ''} preview capture --recipe {recipe}".strip(),
+    )
+    bundle_dir = result.get("_bundle_dir", result.get("bundle_dir", ""))
+    status = "Reused preview bundle" if result.get("cached") else "Created preview bundle"
+    output(result, f"{status}: {bundle_dir}")
+
+
+@preview_group.command("latest")
+@click.option("--recipe", default=None, help="Filter by recipe name")
+@click.option("--root-dir", default=None, help="Override preview bundle root directory")
+@handle_error
+def preview_latest(recipe, root_dir):
+    """Show the latest preview bundle manifest."""
+    sess = get_session()
+    result = preview_mod.latest(project_path=sess.project_path, recipe=recipe, root_dir=root_dir)
+    output(result, f"Latest preview bundle: {result.get('_bundle_dir', '')}")
+
+
 # ── Session Commands ────────────────────────────────────────────
 @cli.group()
 def session():
@@ -886,6 +931,7 @@ def repl(project_path):
         "light":     "add|set|list",
         "animation": "keyframe|remove-keyframe|frame-range|fps|list-keyframes",
         "render":    "settings|info|presets|execute|script",
+        "preview":   "recipes|capture|latest",
         "session":   "status|undo|redo|history",
         "help":      "show this help",
         "quit":      "exit REPL",

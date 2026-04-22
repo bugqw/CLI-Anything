@@ -11,7 +11,8 @@ import json
 import shutil
 import tempfile
 import subprocess
-
+import re
+import time
 import pytest
 from PIL import Image, ImageStat
 
@@ -24,10 +25,24 @@ from cli_anything.shotcut.core import filters as filt_mod
 from cli_anything.shotcut.core import media as media_mod
 from cli_anything.shotcut.core import export as export_mod
 from cli_anything.shotcut.core import transitions as trans_mod
+from cli_anything.shotcut.core import preview as preview_mod
+from cli_anything.shotcut.utils.time import (
+    timecode_to_frames, frames_to_timecode, parse_time_input,
+    frames_to_seconds, seconds_to_frames, format_duration,
+)
 from cli_anything.shotcut.utils.mlt_xml import (
     get_property, get_all_producers, create_producer,
 )
 
+VIDEO = "/root/shotcut/1.mp4"
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+
+@pytest.fixture
+def video():
+    """Ensure the test video exists."""
+    assert os.path.isfile(VIDEO), f"Test video not found: {VIDEO}"
+    return VIDEO
 
 @pytest.fixture
 def session():
@@ -42,6 +57,95 @@ def session_with_tracks(session):
     tl_mod.add_track(session, "video", "V2")
     tl_mod.add_track(session, "audio", "A1")
     return session
+
+
+@pytest.fixture(scope="module")
+def preview_video():
+    """Create a colorful deterministic source video for preview verification."""
+    tmpdir = tempfile.mkdtemp()
+    video_path = os.path.join(tmpdir, "preview_source.mp4")
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "testsrc=duration=5:size=1280x720:rate=30",
+                "-f",
+                "lavfi",
+                "-i",
+                "sine=frequency=440:duration=5",
+                "-c:v",
+                "libx264",
+                "-c:a",
+                "aac",
+                "-shortest",
+                video_path,
+            ],
+            capture_output=True,
+            check=True,
+            timeout=60,
+        )
+    except (FileNotFoundError, subprocess.CalledProcessError):
+        pytest.skip("ffmpeg not available")
+
+    yield video_path
+
+    shutil.rmtree(tmpdir, ignore_errors=True)
+
+
+def _artifact_path(manifest, artifact_id):
+    for artifact in manifest["artifacts"]:
+        if artifact["artifact_id"] == artifact_id:
+            return os.path.join(manifest["_bundle_dir"], artifact["path"])
+    raise KeyError(f"Artifact not found: {artifact_id}")
+
+
+def _assert_png(path):
+    assert os.path.isfile(path), f"Missing PNG artifact: {path}"
+    with open(path, "rb") as fh:
+        assert fh.read(8) == PNG_MAGIC, f"Invalid PNG header: {path}"
+    assert os.path.getsize(path) > 0, f"Empty PNG artifact: {path}"
+
+
+def _luma_yavg(path):
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-hide_banner",
+            "-i",
+            path,
+            "-vf",
+            "signalstats,metadata=print:file=-",
+            "-frames:v",
+            "1",
+            "-f",
+            "null",
+            "-",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        check=True,
+    )
+    match = re.search(r"lavfi\.signalstats\.YAVG=([0-9.]+)", result.stdout + result.stderr)
+    if not match:
+        raise AssertionError(f"Could not determine YAVG for {path}")
+    return float(match.group(1))
+
+
+def _wait_for_live_bundle_count(session_path, expected_count, timeout_s=20.0):
+    deadline = time.time() + timeout_s
+    latest = None
+    while time.time() < deadline:
+        with open(session_path, "r", encoding="utf-8") as fh:
+            latest = json.load(fh)
+        if latest.get("bundle_count", 0) >= expected_count:
+            return latest
+        time.sleep(0.5)
+    raise AssertionError(f"Timed out waiting for bundle_count >= {expected_count}: {latest}")
 
 
 # ============================================================================
@@ -640,12 +744,14 @@ def _resolve_cli(name, force=False):
 class TestCLISubprocess:
     CLI_BASE = _resolve_cli("cli-anything-shotcut")
 
-    def _run(self, *args, json_mode=False):
+    def _run(self, *args, json_mode=False, timeout=30):
+        import subprocess
         cmd = list(self.CLI_BASE)
         if json_mode:
             cmd.append("--json")
         cmd.extend(args)
-        return subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return result
 
     def test_help(self):
         r = self._run("--help")
@@ -688,6 +794,214 @@ class TestCLISubprocess:
         r = self._run("media", "probe", video)
         assert r.returncode == 0
         assert os.path.basename(video) in r.stdout
+
+    def test_preview_capture_json(self, preview_video):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_path = os.path.join(tmp_dir, "preview_source.mlt")
+
+            session = Session()
+            proj_mod.new_project(session, "hd1080p30")
+            tl_mod.add_track(session, "video", "Preview")
+            tl_mod.add_clip(
+                session,
+                preview_video,
+                1,
+                in_point="00:00:00.000",
+                out_point="00:00:03.000",
+                caption="Preview Shot",
+            )
+            filt_mod.add_filter(
+                session,
+                "brightness",
+                track_index=1,
+                clip_index=0,
+                params={"level": "1.15"},
+            )
+            proj_mod.save_project(session, project_path)
+
+            result = self._run(
+                "--project",
+                project_path,
+                "preview",
+                "capture",
+                "--root-dir",
+                tmp_dir,
+                json_mode=True,
+                timeout=180,
+            )
+            assert result.returncode == 0, result.stderr
+
+            manifest = json.loads(result.stdout)
+            assert manifest["software"] == "shotcut"
+            assert manifest["bundle_kind"] == "capture"
+            assert manifest["status"] in ("ok", "partial")
+            clip_path = _artifact_path(manifest, "clip")
+            hero_path = _artifact_path(manifest, "frame_03")
+            assert manifest["artifacts"][0]["render_method"] == "ffmpeg-filtergraph"
+            assert os.path.isfile(clip_path)
+            _assert_png(hero_path)
+            assert _luma_yavg(hero_path) > 10.0
+
+            latest = self._run(
+                "preview",
+                "latest",
+                "--recipe",
+                "quick",
+                "--root-dir",
+                tmp_dir,
+                json_mode=True,
+                timeout=60,
+            )
+            assert latest.returncode == 0, latest.stderr
+            latest_manifest = json.loads(latest.stdout)
+            assert latest_manifest["bundle_id"] == manifest["bundle_id"]
+
+            print(f"\n  Shotcut preview bundle: {manifest['_bundle_dir']}")
+            print(f"  Shotcut preview clip: {clip_path}")
+            print(f"  Shotcut preview hero: {hero_path}")
+
+    def test_preview_live_poll_auto_refresh(self, preview_video):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_path = os.path.join(tmp_dir, "preview_live_poll.mlt")
+            live_root = os.path.join(tmp_dir, "live-root")
+
+            r = self._run("project", "new", "--profile", "hd1080p30", "-o", project_path, timeout=60)
+            assert r.returncode == 0, r.stderr
+
+            r = self._run("-s", "--project", project_path, "timeline", "add-track", "--type", "video", "--name", "Preview", timeout=60)
+            assert r.returncode == 0, r.stderr
+
+            r = self._run(
+                "-s",
+                "--project",
+                project_path,
+                "timeline",
+                "add-clip",
+                preview_video,
+                "--track",
+                "1",
+                "--in",
+                "00:00:00.000",
+                "--out",
+                "00:00:04.000",
+                "--caption",
+                "Preview Clip",
+                timeout=60,
+            )
+            assert r.returncode == 0, r.stderr
+
+            started = self._run(
+                "--json",
+                "--project",
+                project_path,
+                "preview",
+                "live",
+                "start",
+                "--recipe",
+                "quick",
+                "--mode",
+                "poll",
+                "--source-poll-ms",
+                "500",
+                "--poll-ms",
+                "700",
+                "--root-dir",
+                live_root,
+                timeout=180,
+            )
+            assert started.returncode == 0, started.stderr
+            started_payload = json.loads(started.stdout)
+            session_path = started_payload["_session_path"]
+            assert started_payload["bundle_count"] == 1
+            assert started_payload["live_mode"] == "poll"
+
+            try:
+                changed = self._run(
+                    "-s",
+                    "--project",
+                    project_path,
+                    "filter",
+                    "add",
+                    "brightness",
+                    "--track",
+                    "1",
+                    "--clip",
+                    "0",
+                    "--param",
+                    "level=1.35",
+                    timeout=60,
+                )
+                assert changed.returncode == 0, changed.stderr
+
+                session_payload = _wait_for_live_bundle_count(session_path, 2, timeout_s=20.0)
+                assert session_payload["bundle_count"] >= 2
+                assert session_payload["source_state"]["last_publish_reason"] == "auto-poll"
+                assert session_payload["poller"]["running"] is True
+
+                print(f"\n  Shotcut poll session: {session_payload['_session_dir'] if '_session_dir' in session_payload else os.path.dirname(session_path)}")
+                print(f"  Shotcut poll bundle count: {session_payload['bundle_count']}")
+                print(f"  Shotcut poll current bundle: {session_payload['current_bundle_id']}")
+            finally:
+                stopped = self._run(
+                    "--project",
+                    project_path,
+                    "preview",
+                    "live",
+                    "stop",
+                    "--root-dir",
+                    live_root,
+                    timeout=60,
+                )
+                assert stopped.returncode == 0, stopped.stderr
+
+
+class TestPreviewE2E:
+    def test_capture_preview_bundle(self, session, preview_video):
+        tl_mod.add_track(session, "video", "Preview")
+        tl_mod.add_clip(
+            session,
+            preview_video,
+            1,
+            in_point="00:00:00.000",
+            out_point="00:00:04.000",
+            caption="Preview Clip",
+        )
+        filt_mod.add_filter(
+            session,
+            "brightness",
+            track_index=1,
+            clip_index=0,
+            params={"level": "1.25"},
+        )
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            project_path = os.path.join(tmp_dir, "preview_capture.mlt")
+            proj_mod.save_project(session, project_path)
+
+            manifest = preview_mod.capture(session, root_dir=tmp_dir, force=True)
+            assert manifest["software"] == "shotcut"
+            assert manifest["bundle_kind"] == "capture"
+            assert manifest["status"] in ("ok", "partial")
+
+            clip_path = _artifact_path(manifest, "clip")
+            hero_path = _artifact_path(manifest, "frame_03")
+            probe = media_mod.probe_media(clip_path)
+            video_stream = (probe.get("video_streams") or [{}])[0]
+
+            assert os.path.isfile(clip_path)
+            assert os.path.getsize(clip_path) > 0
+            assert manifest["artifacts"][0]["render_method"] == "ffmpeg-filtergraph"
+            assert int(video_stream.get("width") or 0) == 640
+            assert int(video_stream.get("height") or 0) == 360
+            _assert_png(hero_path)
+            assert _luma_yavg(hero_path) > 10.0
+
+            latest = preview_mod.latest(project_path=project_path, recipe="quick", root_dir=tmp_dir)
+            assert latest["bundle_id"] == manifest["bundle_id"]
+
+            print(f"\n  Shotcut preview bundle: {manifest['_bundle_dir']}")
+            print(f"  Shotcut preview clip: {clip_path}")
+            print(f"  Shotcut preview hero: {hero_path}")
 
 
 # ============================================================================

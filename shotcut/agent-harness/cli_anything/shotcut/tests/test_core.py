@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import xml.etree.ElementTree as ET
+import tempfile
 from pathlib import Path
 import pytest
 
@@ -18,6 +19,7 @@ from cli_anything.shotcut.core import media as media_mod
 from cli_anything.shotcut.core import export as export_mod
 from cli_anything.shotcut.core import transitions as trans_mod
 from cli_anything.shotcut.core import compositing as comp_mod
+from cli_anything.shotcut.core import preview as preview_mod
 from cli_anything.shotcut.utils.time import (
     timecode_to_frames, frames_to_timecode, parse_time_input,
     frames_to_seconds, seconds_to_frames,
@@ -357,6 +359,243 @@ class TestSession:
         assert len(session_with_track._bin_chains) == 1
         session_with_track.undo()
         assert len(session_with_track._bin_chains) == 0
+
+
+class TestPreview:
+    @staticmethod
+    def _fake_bundle(tmp_path, bundle_id):
+        bundle_dir = tmp_path / bundle_id
+        artifacts_dir = bundle_dir / "artifacts"
+        artifacts_dir.mkdir(parents=True, exist_ok=True)
+        hero_path = artifacts_dir / "hero.png"
+        clip_path = artifacts_dir / "preview.mp4"
+        hero_path.write_bytes(b"\x89PNG\r\n\x1a\npreview")
+        clip_path.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+        summary_path = bundle_dir / "summary.json"
+        summary_path.write_text(json.dumps({"headline": "Shotcut quick preview", "facts": {"duration_s": 5.0}}))
+        manifest_path = bundle_dir / "manifest.json"
+        manifest_path.write_text(json.dumps({"bundle_id": bundle_id, "status": "ok"}))
+        return {
+            "bundle_id": bundle_id,
+            "status": "ok",
+            "_bundle_dir": str(bundle_dir),
+            "_manifest_path": str(manifest_path),
+            "_summary_path": str(summary_path),
+            "cached": False,
+        }
+
+    def test_list_recipes(self):
+        recipes = preview_mod.list_recipes()
+        assert recipes
+        assert recipes[0]["name"] == "quick"
+
+    def test_capture_bundle(self, tmp_path, monkeypatch):
+        session = Session("preview_test")
+        session.new_project()
+
+        def fake_render(session_obj, output_path, preset, width, height, overwrite, prefer_ffmpeg=False):
+            Path(output_path).write_bytes(b"\x00\x00\x00\x18ftypmp42")
+            return {
+                "output": output_path,
+                "method": "ffmpeg-filtergraph" if prefer_ffmpeg else "melt",
+                "size_bytes": 12,
+            }
+
+        def fake_probe(path):
+            return {
+                "duration_seconds": 6.0,
+                "video_streams": [{"width": 640, "height": 360}],
+            }
+
+        def fake_thumb(filepath, output_path, timecode, width, height):
+            Path(output_path).write_bytes(b"\x89PNG\r\n\x1a\npreview")
+            return {"output": output_path, "time": timecode}
+
+        monkeypatch.setattr(export_mod, "render", fake_render)
+        monkeypatch.setattr(media_mod, "probe_media", fake_probe)
+        monkeypatch.setattr(media_mod, "generate_thumbnail", fake_thumb)
+
+        manifest = preview_mod.capture(session, root_dir=str(tmp_path))
+        assert manifest["software"] == "shotcut"
+        assert manifest["recipe"] == "quick"
+        assert manifest["status"] == "ok"
+        assert manifest["cached"] is False
+        assert any(item["role"] == "preview-clip" for item in manifest["artifacts"])
+        assert any(item["role"] == "hero" for item in manifest["artifacts"])
+        assert os.path.isfile(manifest["_manifest_path"])
+
+    def test_latest_bundle(self, tmp_path, monkeypatch):
+        session = Session("preview_test")
+        session.new_project()
+
+        def fake_render(session_obj, output_path, preset, width, height, overwrite, prefer_ffmpeg=False):
+            Path(output_path).write_bytes(b"\x00\x00\x00\x18ftypmp42")
+            return {"output": output_path, "method": "ffmpeg-filtergraph" if prefer_ffmpeg else "melt"}
+
+        def fake_probe(path):
+            return {
+                "duration_seconds": 3.0,
+                "video_streams": [{"width": 640, "height": 360}],
+            }
+
+        def fake_thumb(filepath, output_path, timecode, width, height):
+            Path(output_path).write_bytes(b"\x89PNG\r\n\x1a\nthumb")
+            return {"output": output_path, "time": timecode}
+
+        monkeypatch.setattr(export_mod, "render", fake_render)
+        monkeypatch.setattr(media_mod, "probe_media", fake_probe)
+        monkeypatch.setattr(media_mod, "generate_thumbnail", fake_thumb)
+
+        created = preview_mod.capture(session, root_dir=str(tmp_path))
+        latest = preview_mod.latest(root_dir=str(tmp_path))
+        assert latest["bundle_id"] == created["bundle_id"]
+
+    def test_live_start_publishes_session(self, tmp_path, monkeypatch):
+        session = Session("preview_live")
+        session.new_project()
+        project_path = tmp_path / "live-demo.mlt"
+        session.save_project(str(project_path))
+        bundle_manifest = self._fake_bundle(tmp_path / "bundles", "bundle-a")
+
+        def fake_capture(*args, **kwargs):
+            return dict(bundle_manifest)
+
+        monkeypatch.setattr(preview_mod, "capture", fake_capture)
+
+        live = preview_mod.live_start(
+            session,
+            root_dir=str(tmp_path),
+            refresh_hint_ms=900,
+            live_mode="poll",
+            source_poll_ms=420,
+        )
+        assert live["protocol_version"] == preview_mod.LIVE_PROTOCOL_VERSION
+        assert live["current_bundle_id"] == "bundle-a"
+        assert live["refresh_hint_ms"] == 900
+        assert live["live_mode"] == "poll"
+        assert live["source_poll_ms"] == 420
+        assert live["source_state"]["project_path"] == str(project_path)
+        assert live["source_state"]["last_rendered_fingerprint"].startswith("sha256:")
+        assert Path(live["_session_path"]).is_file()
+        assert (Path(live["_session_dir"]) / "current" / "manifest.json").is_file()
+
+    def test_live_push_updates_history(self, tmp_path, monkeypatch):
+        session = Session("preview_live")
+        session.new_project()
+        project_path = tmp_path / "live-demo.mlt"
+        session.save_project(str(project_path))
+        bundle_a = self._fake_bundle(tmp_path / "bundles", "bundle-a")
+        bundle_b = self._fake_bundle(tmp_path / "bundles", "bundle-b")
+        manifests = [dict(bundle_a), dict(bundle_b)]
+
+        def fake_capture(*args, **kwargs):
+            return manifests.pop(0)
+
+        monkeypatch.setattr(preview_mod, "capture", fake_capture)
+
+        started = preview_mod.live_start(session, root_dir=str(tmp_path))
+        pushed = preview_mod.live_push(session, root_dir=str(tmp_path))
+        assert started["current_bundle_id"] == "bundle-a"
+        assert pushed["current_bundle_id"] == "bundle-b"
+        assert pushed["history"][0]["bundle_id"] == "bundle-b"
+        assert pushed["history"][1]["bundle_id"] == "bundle-a"
+
+    def test_live_stop_marks_session_stopped(self, tmp_path, monkeypatch):
+        session = Session("preview_live")
+        session.new_project()
+        project_path = tmp_path / "live-demo.mlt"
+        session.save_project(str(project_path))
+        bundle_manifest = self._fake_bundle(tmp_path / "bundles", "bundle-a")
+
+        def fake_capture(*args, **kwargs):
+            return dict(bundle_manifest)
+
+        monkeypatch.setattr(preview_mod, "capture", fake_capture)
+
+        preview_mod.live_start(session, root_dir=str(tmp_path))
+        stopped = preview_mod.live_stop(session, root_dir=str(tmp_path))
+        assert stopped["status"] == "stopped"
+        assert "stopped_at" in stopped
+
+    def test_live_session_name_is_stable_for_same_project_path(self, tmp_path):
+        project_path = tmp_path / "stable-demo.mlt"
+
+        session_a = Session("session-a")
+        session_a.new_project()
+        session_a.save_project(str(project_path))
+
+        session_b = Session("session-b")
+        session_b.open_project(str(project_path))
+
+        name_a = preview_mod._live_session_name(session_a, "quick")
+        name_b = preview_mod._live_session_name(session_b, "quick")
+        assert name_a == name_b
+
+    def test_project_fingerprint_is_stable_across_sessions_for_saved_project(self, tmp_path):
+        project_path = tmp_path / "stable-project.mlt"
+
+        session_a = Session("session-a")
+        session_a.new_project()
+        session_a.save_project(str(project_path))
+
+        session_b = Session("session-b")
+        session_b.open_project(str(project_path))
+
+        assert preview_mod._project_fingerprint(session_a) == preview_mod._project_fingerprint(session_b)
+
+    def test_poll_live_session_once_captures_after_source_change(self, tmp_path, monkeypatch):
+        session = Session("preview_live")
+        session.new_project()
+        project_path = tmp_path / "poll-demo.mlt"
+        session.save_project(str(project_path))
+        bundle_a = self._fake_bundle(tmp_path / "bundles", "bundle-a")
+        bundle_b = self._fake_bundle(tmp_path / "bundles", "bundle-b")
+        manifests = [dict(bundle_a), dict(bundle_b)]
+        calls = []
+
+        def fake_capture(*args, **kwargs):
+            calls.append(kwargs.get("command"))
+            return manifests.pop(0)
+
+        monkeypatch.setattr(preview_mod, "capture", fake_capture)
+
+        started = preview_mod.live_start(
+            session,
+            root_dir=str(tmp_path),
+            live_mode="poll",
+            source_poll_ms=preview_mod.MIN_SOURCE_POLL_MS,
+        )
+        started_session_dir = Path(started["_session_dir"])
+        session_payload = json.loads(Path(started["_session_path"]).read_text())
+        session_payload["source_state"]["last_rendered_fingerprint"] = "sha256:stale"
+        Path(started["_session_path"]).write_text(json.dumps(session_payload, indent=2))
+
+        result = preview_mod.poll_live_session_once(str(started_session_dir))
+        refreshed = json.loads(Path(started["_session_path"]).read_text())
+        assert result["action"] == "captured"
+        assert refreshed["current_bundle_id"] == "bundle-b"
+        assert refreshed["source_state"]["last_rendered_fingerprint"].startswith("sha256:")
+        assert refreshed["poller"]["last_capture_status"] == "ok"
+        assert calls
+
+    def test_poll_live_session_once_exits_for_manual_mode(self, tmp_path, monkeypatch):
+        session = Session("preview_live")
+        session.new_project()
+        project_path = tmp_path / "manual-demo.mlt"
+        session.save_project(str(project_path))
+        bundle_manifest = self._fake_bundle(tmp_path / "bundles", "bundle-a")
+
+        def fake_capture(*args, **kwargs):
+            return dict(bundle_manifest)
+
+        monkeypatch.setattr(preview_mod, "capture", fake_capture)
+
+        started = preview_mod.live_start(session, root_dir=str(tmp_path), live_mode="manual")
+        result = preview_mod.poll_live_session_once(started["_session_dir"])
+        refreshed = json.loads(Path(started["_session_path"]).read_text())
+        assert result["action"] == "exit"
+        assert refreshed["poller"]["running"] is False
+        assert refreshed["poller"]["last_exit_reason"] == "live-mode:manual"
 
 
 # ============================================================================

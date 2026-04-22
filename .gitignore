@@ -269,6 +269,11 @@ assets/gen_typing_gif.py
 !/matrix_registry.json
 !/docs/
 /docs/*
+!/docs/PREVIEW_PROTOCOL.md
+!/docs/PREVIEW_PROGRESS.md
+!/docs/FREECAD_VIDEO_REFERENCE.md
+!/docs/scripts/
+!/docs/scripts/**
 !/docs/hub/
 /docs/hub/registry-dates.json
 !/notebooklm/

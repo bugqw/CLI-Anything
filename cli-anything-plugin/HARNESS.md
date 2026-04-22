@@ -495,6 +495,16 @@ These are non-negotiable. Every harness MUST follow all of them.
 - **Be idempotent where possible** — Running the same command twice should be safe.
 - **Provide introspection** — `info`, `list`, `status` commands are critical for agents
   to understand current state before acting.
+- **Preview meaningful intermediate state** — Harnesses that can expose useful
+  visual checkpoints SHOULD implement a `preview` command group with at least
+  `preview recipes`, `preview capture`, and `preview latest`. Diff-oriented
+  tools SHOULD also expose `preview diff`.
+- **Use the shared preview bundle protocol** — Preview-capable harnesses SHOULD
+  emit `preview-bundle/v1` bundles as described in `docs/PREVIEW_PROTOCOL.md`.
+  The bundle is the contract; the renderer remains the real software.
+- **Do not screen-scrape GUI windows for previews** — Preview artifacts must be
+  produced by the real backend or by native inspection/export paths operating
+  on real project/capture state.
 - **JSON output mode** — Every command MUST support `--json` for machine parsing.
 - **Use the unified REPL skin** — Copy `cli-anything-plugin/repl_skin.py` to
   `utils/repl_skin.py` and use `ReplSkin` for banner, prompt, help, and messages.

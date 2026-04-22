@@ -12,6 +12,15 @@ import requests
 
 from cli_hub import __version__
 from cli_hub.registry import fetch_registry, fetch_all_clis, get_cli, search_clis, list_categories
+from cli_hub.preview import (
+    inspect_bundle,
+    inspect_session,
+    open_in_browser,
+    render_html,
+    render_inspect_text,
+    render_live_html,
+    render_session_text,
+)
 from cli_hub.installer import (
     install_cli,
     uninstall_cli,
@@ -75,6 +84,94 @@ SAMPLE_REGISTRY = {
         },
     ],
 }
+
+
+def _make_preview_bundle(tmp_path: Path) -> Path:
+    bundle_dir = tmp_path / "preview-bundle"
+    artifacts_dir = bundle_dir / "artifacts"
+    artifacts_dir.mkdir(parents=True)
+    (artifacts_dir / "hero.png").write_bytes(b"\x89PNG\r\n\x1a\npreview")
+    (artifacts_dir / "preview.mp4").write_bytes(b"\x00\x00\x00\x18ftypmp42")
+    summary = {
+        "headline": "Quick preview rendered",
+        "facts": {
+            "duration_s": 6.0,
+            "resolution": "640x360",
+        },
+        "warnings": [],
+    }
+    manifest = {
+        "protocol_version": "preview-bundle/v1",
+        "bundle_id": "20260419T104530Z_deadbeef_quick",
+        "bundle_kind": "capture",
+        "software": "shotcut",
+        "recipe": "quick",
+        "status": "ok",
+        "created_at": "2026-04-19T10:45:30Z",
+        "generator": {"entry_point": "cli-anything-shotcut", "command": "cli-anything-shotcut preview capture --recipe quick"},
+        "source": {"project_path": "/tmp/demo.mlt", "project_fingerprint": "sha256:test"},
+        "summary_path": "summary.json",
+        "artifacts": [
+            {
+                "artifact_id": "hero",
+                "role": "hero",
+                "kind": "image",
+                "label": "Midpoint frame",
+                "media_type": "image/png",
+                "path": "artifacts/hero.png",
+                "width": 960,
+                "height": 540,
+                "bytes": (artifacts_dir / "hero.png").stat().st_size,
+            },
+            {
+                "artifact_id": "clip",
+                "role": "preview-clip",
+                "kind": "clip",
+                "label": "Preview clip",
+                "media_type": "video/mp4",
+                "path": "artifacts/preview.mp4",
+                "width": 640,
+                "height": 360,
+                "duration_s": 6.0,
+                "bytes": (artifacts_dir / "preview.mp4").stat().st_size,
+            },
+        ],
+    }
+    (bundle_dir / "summary.json").write_text(json.dumps(summary, indent=2))
+    (bundle_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    return bundle_dir
+
+
+def _make_preview_session(tmp_path: Path) -> Path:
+    bundle_dir = _make_preview_bundle(tmp_path)
+    session_dir = tmp_path / "live-session"
+    session_dir.mkdir()
+    (session_dir / "current").symlink_to(bundle_dir, target_is_directory=True)
+    session = {
+        "protocol_version": "preview-live/v1",
+        "software": "shotcut",
+        "recipe": "quick",
+        "status": "active",
+        "session_name": "demo-live",
+        "project_path": "/tmp/demo.mlt",
+        "project_name": "demo.mlt",
+        "updated_at": "2026-04-20T09:00:00Z",
+        "current_link": "current",
+        "current_bundle_id": "20260419T104530Z_deadbeef_quick",
+        "watch_command": "cli-hub preview watch /tmp/live-session --open",
+        "publish_command": "cli-anything-shotcut preview live push --recipe quick",
+        "inspect_command": "cli-hub preview inspect /tmp/live-session",
+        "history": [
+            {
+                "bundle_id": "20260419T104530Z_deadbeef_quick",
+                "bundle_dir": str(bundle_dir),
+                "created_at": "2026-04-19T10:45:30Z",
+                "status": "ok",
+            }
+        ],
+    }
+    (session_dir / "session.json").write_text(json.dumps(session, indent=2))
+    return session_dir
 
 
 # ─── Registry tests ───────────────────────────────────────────────────
@@ -151,6 +248,102 @@ class TestRegistry:
     def test_list_categories(self, mock_fetch):
         cats = list_categories()
         assert cats == ["3d", "audio", "image"]
+
+
+class TestPreviewBundle:
+    """Tests for preview bundle inspection and HTML rendering."""
+
+    def test_inspect_bundle(self, tmp_path):
+        bundle_dir = _make_preview_bundle(tmp_path)
+        payload = inspect_bundle(str(bundle_dir))
+        assert payload["artifact_count"] == 2
+        assert payload["manifest"]["software"] == "shotcut"
+        assert payload["summary"]["headline"] == "Quick preview rendered"
+
+    def test_render_inspect_text(self, tmp_path):
+        bundle_dir = _make_preview_bundle(tmp_path)
+        text = render_inspect_text(str(bundle_dir))
+        assert "Bundle:" in text
+        assert "Artifacts" in text
+        assert "Midpoint frame" in text
+
+    def test_render_html(self, tmp_path):
+        bundle_dir = _make_preview_bundle(tmp_path)
+        output_path = tmp_path / "preview.html"
+        rendered = render_html(str(bundle_dir), str(output_path))
+        assert rendered == str(output_path.resolve())
+        content = output_path.read_text()
+        assert "CLI-Anything Preview Bundle" in content
+        assert "Quick preview rendered" in content
+        assert "artifacts/hero.png" in content
+        assert "artifacts/preview.mp4" in content
+
+    def test_preview_inspect_cli_command(self, tmp_path):
+        bundle_dir = _make_preview_bundle(tmp_path)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(main, ["preview", "inspect", str(bundle_dir)])
+        assert result.exit_code == 0
+        assert "Quick preview rendered" in result.output
+
+    def test_preview_html_cli_command(self, tmp_path):
+        bundle_dir = _make_preview_bundle(tmp_path)
+        output_path = tmp_path / "bundle-preview.html"
+        runner = click.testing.CliRunner()
+        result = runner.invoke(main, ["preview", "html", str(bundle_dir), "-o", str(output_path)])
+        assert result.exit_code == 0
+        assert str(output_path) in result.output
+        assert output_path.is_file()
+
+    def test_inspect_session(self, tmp_path):
+        session_dir = _make_preview_session(tmp_path)
+        payload = inspect_session(str(session_dir))
+        assert payload["session"]["software"] == "shotcut"
+        assert payload["current_bundle"]["manifest"]["bundle_id"] == "20260419T104530Z_deadbeef_quick"
+
+    def test_render_session_text(self, tmp_path):
+        session_dir = _make_preview_session(tmp_path)
+        text = render_session_text(str(session_dir))
+        assert "Live Session:" in text
+        assert "Watch:" in text
+        assert "History" in text
+
+    def test_render_live_html(self, tmp_path):
+        session_dir = _make_preview_session(tmp_path)
+        output_path = tmp_path / "live.html"
+        rendered = render_live_html(str(session_dir), str(output_path), poll_ms=800)
+        assert rendered == str(output_path.resolve())
+        content = output_path.read_text()
+        assert "CLI-Anything Live Preview Session" in content
+        assert 'const CURRENT_LINK = "current";' in content
+        assert "manifest = await fetchJson(`${CURRENT_LINK}/manifest.json`);" in content
+        assert "const POLL_MS = 800;" in content
+
+    @patch("cli_hub.preview.subprocess.Popen")
+    @patch("cli_hub.preview.shutil.which")
+    def test_open_in_browser_prefers_app_mode(self, mock_which, mock_popen):
+        mock_which.side_effect = lambda binary: f"/usr/bin/{binary}" if binary == "chromium" else None
+        mock_popen.return_value = MagicMock(pid=4321)
+        result = open_in_browser("http://127.0.0.1:9933/live.html")
+        assert result["launched"] is True
+        assert result["browser"] == "chromium"
+        assert "--app=http://127.0.0.1:9933/live.html" in result["command"]
+
+    def test_preview_inspect_cli_handles_session(self, tmp_path):
+        session_dir = _make_preview_session(tmp_path)
+        runner = click.testing.CliRunner()
+        result = runner.invoke(main, ["preview", "inspect", str(session_dir)])
+        assert result.exit_code == 0
+        assert "Live Session:" in result.output
+
+    def test_preview_html_cli_renders_session(self, tmp_path):
+        session_dir = _make_preview_session(tmp_path)
+        output_path = tmp_path / "session-live.html"
+        runner = click.testing.CliRunner()
+        result = runner.invoke(main, ["preview", "html", str(session_dir), "-o", str(output_path), "--poll-ms", "700"])
+        assert result.exit_code == 0
+        assert output_path.is_file()
+        assert "const POLL_MS = 700;" in output_path.read_text()
+
 
 # ─── Installer tests ──────────────────────────────────────────────────
 

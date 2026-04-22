@@ -7,6 +7,7 @@ import json
 import os
 import sys
 import tempfile
+from pathlib import Path
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
@@ -37,6 +38,8 @@ from cli_anything.blender.core.render import (
     set_render_settings, get_render_settings, list_render_presets,
     render_scene, RENDER_PRESETS, VALID_ENGINES,
 )
+from cli_anything.blender.core import preview as preview_mod
+from cli_anything.blender.utils import blender_backend
 from cli_anything.blender.core.session import Session
 
 
@@ -1033,3 +1036,51 @@ class TestSession:
 
         sess.undo()
         assert len(sess.get_project()["objects"][0]["modifiers"]) == 0
+
+
+class TestPreview:
+    def test_list_recipes(self):
+        recipes = preview_mod.list_recipes()
+        assert recipes
+        assert recipes[0]["name"] == "quick"
+
+    def test_capture_bundle(self, tmp_path, monkeypatch):
+        sess = Session()
+        proj = create_scene(name="PreviewScene")
+        sess.set_project(proj, str(tmp_path / "scene.json"))
+
+        call_count = {"value": 0}
+
+        def fake_render(script_content, output_path, timeout=300):
+            call_count["value"] += 1
+            Path(output_path).write_bytes(b"\x89PNG\r\n\x1a\npreview")
+            return {
+                "output": output_path,
+                "method": "blender-headless",
+                "file_size": os.path.getsize(output_path),
+            }
+
+        monkeypatch.setattr(blender_backend, "render_scene_headless", fake_render)
+
+        manifest = preview_mod.capture(sess, root_dir=str(tmp_path))
+        assert manifest["software"] == "blender"
+        assert manifest["recipe"] == "quick"
+        assert manifest["status"] == "partial"
+        assert call_count["value"] == 2
+        assert any(item["role"] == "hero" for item in manifest["artifacts"])
+        assert any(item["artifact_id"] == "workbench" for item in manifest["artifacts"])
+
+    def test_latest_bundle(self, tmp_path, monkeypatch):
+        sess = Session()
+        proj = create_scene(name="PreviewScene")
+        sess.set_project(proj)
+
+        def fake_render(script_content, output_path, timeout=300):
+            Path(output_path).write_bytes(b"\x89PNG\r\n\x1a\npreview")
+            return {"output": output_path, "method": "blender-headless"}
+
+        monkeypatch.setattr(blender_backend, "render_scene_headless", fake_render)
+
+        created = preview_mod.capture(sess, root_dir=str(tmp_path))
+        latest = preview_mod.latest(root_dir=str(tmp_path))
+        assert latest["bundle_id"] == created["bundle_id"]

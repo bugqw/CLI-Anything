@@ -140,7 +140,25 @@ def render(session: Session, output_path: str,
            width: Optional[int] = None,
            height: Optional[int] = None,
            overwrite: bool = False,
-           extra_args: Optional[list[str]] = None) -> dict:
+           extra_args: Optional[list[str]] = None,
+           prefer_ffmpeg: bool = False) -> dict:
+    """Render the project to an output file.
+
+    This works by:
+    1. Saving the current project to a temporary .mlt file
+    2. Using melt to render it
+
+    Args:
+        session: Active session with an open project
+        output_path: Path for the output file
+        preset: Export preset name
+        width: Override output width
+        height: Override output height
+        overwrite: Overwrite existing output file
+        extra_args: Additional command-line arguments for the encoder
+        prefer_ffmpeg: Backward-compatible preview hint; melt remains the
+            render backend because it natively interprets MLT projects.
+    """
     if not session.is_open:
         raise RuntimeError("No project is open")
 

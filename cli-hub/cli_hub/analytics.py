@@ -282,8 +282,9 @@ def track_event(event_name, url="/cli-anything-hub", data=None):
 
 
 def track_install(cli_name, version):
-    """Track a CLI install event — event name includes the CLI for dashboard visibility."""
-    track_event(f"cli-install:{cli_name}", url=f"/cli-anything-hub/install/{cli_name}", data={
+    """Track a CLI install event. CLI name goes in properties, not the event name,
+    so the event catalog stays flat and dashboards can break down by properties.cli."""
+    track_event("cli-install", url=f"/cli-anything-hub/install/{cli_name}", data={
         "cli": cli_name,
         "version": version,
         "platform": platform.system().lower(),
@@ -292,8 +293,18 @@ def track_install(cli_name, version):
 
 def track_uninstall(cli_name):
     """Track a CLI uninstall event."""
-    track_event(f"cli-uninstall:{cli_name}", url=f"/cli-anything-hub/uninstall/{cli_name}", data={
+    track_event("cli-uninstall", url=f"/cli-anything-hub/uninstall/{cli_name}", data={
         "cli": cli_name,
+        "platform": platform.system().lower(),
+    })
+
+
+def track_launch(cli_name):
+    """Track a CLI launch event — fires when a user runs `cli-hub launch <name>`.
+    Distinct from install: this is actual usage signal."""
+    track_event("cli-launch", url=f"/cli-anything-hub/launch/{cli_name}", data={
+        "cli": cli_name,
+        "platform": platform.system().lower(),
     })
 
 

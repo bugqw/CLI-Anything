@@ -534,32 +534,47 @@ class TestAnalytics:
             assert payload["payload"]["hostname"] == "clianything.cc"
 
     @patch("cli_hub.analytics._send_event")
-    def test_track_install_event_name_includes_cli(self, mock_send):
-        """cli-install event name must include CLI name for dashboard visibility."""
+    def test_track_install_event_name_is_flat(self, mock_send):
+        """cli-install event name is static; CLI name lives in properties.cli."""
         with patch.dict(os.environ, {}, clear=True):
             track_install("gimp", "1.0.0")
             import time
             time.sleep(0.2)
             mock_send.assert_called_once()
             payload = mock_send.call_args[0][0]
-            assert payload["event"] == "cli-install:gimp"
+            assert payload["event"] == "cli-install"
             assert payload["properties"]["$current_url"] == "https://clianything.cc/cli-anything-hub/install/gimp"
             assert payload["properties"]["cli"] == "gimp"
             assert payload["properties"]["version"] == "1.0.0"
             assert "platform" in payload["properties"]
 
     @patch("cli_hub.analytics._send_event")
-    def test_track_uninstall_event_name_includes_cli(self, mock_send):
-        """cli-uninstall event name must include CLI name for dashboard visibility."""
+    def test_track_uninstall_event_name_is_flat(self, mock_send):
+        """cli-uninstall event name is static; CLI name lives in properties.cli."""
         with patch.dict(os.environ, {}, clear=True):
             analytics_track_uninstall("blender")
             import time
             time.sleep(0.2)
             mock_send.assert_called_once()
             payload = mock_send.call_args[0][0]
-            assert payload["event"] == "cli-uninstall:blender"
+            assert payload["event"] == "cli-uninstall"
             assert payload["properties"]["$current_url"] == "https://clianything.cc/cli-anything-hub/uninstall/blender"
             assert payload["properties"]["cli"] == "blender"
+            assert "platform" in payload["properties"]
+
+    @patch("cli_hub.analytics._send_event")
+    def test_track_launch_fires(self, mock_send):
+        """cli-launch event fires with the CLI name in properties."""
+        from cli_hub.analytics import track_launch
+        with patch.dict(os.environ, {}, clear=True):
+            track_launch("gimp")
+            import time
+            time.sleep(0.2)
+            mock_send.assert_called_once()
+            payload = mock_send.call_args[0][0]
+            assert payload["event"] == "cli-launch"
+            assert payload["properties"]["cli"] == "gimp"
+            assert payload["properties"]["$current_url"] == "https://clianything.cc/cli-anything-hub/launch/gimp"
 
     @patch("cli_hub.analytics._send_event")
     def test_track_visit_human(self, mock_send):

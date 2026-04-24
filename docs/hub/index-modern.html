@@ -2909,23 +2909,34 @@
         document.addEventListener(evt, onHumanInteraction, { once: false, passive: true });
       });
 
-      // ── Live analytics (PostHog HogQL via Cloudflare Worker proxy) ──
-      // PostHog key lives in a Cloudflare Worker secret (repo:
-      // ~/clianything-analytics-worker). The worker allow-lists this exact
-      // HogQL shape and forwards to us.posthog.com.
+      // ── Live analytics via Cloudflare Worker proxy ──
+      // PostHog key and Umami key live as Worker secrets (repo:
+      // ~/clianything-analytics-worker). Both sources are queried every
+      // refresh and summed, so pre-migration Umami events and post-migration
+      // PostHog events stay counted forever.
       const ANALYTICS_PROXY_URL = 'https://analytics.clianything.cc/';
-      const MIGRATION_STARTED_AT = '2026-04-23T09:06:38Z';
+      const UMAMI_SITE_IDS = [
+        '07082d05-efd3-4f85-a7a1-b426b0e8bfaa', // hkuds.github.io
+        'a076c661-bed1-405c-a522-813794e688b4', // clianything.cc
+      ];
       const LIVE_STATS_REFRESH_MS = 60_000;
+      const ZERO_STATS = {
+        human: 0, agent: 0,
+        cli_hub_human: 0, cli_hub_agent: 0,
+        cli_install: 0, cli_uninstall: 0, cli_launch: 0,
+      };
 
-      async function fetchPosthogIncrement() {
+      async function fetchPosthogTotals() {
         const hogql = (
           "select " +
           "countIf(event = 'visit-human' and properties.source = 'web' and properties.site = 'clianything.cc') as human, " +
           "countIf(event = 'visit-agent' and properties.source = 'web' and properties.site = 'clianything.cc') as agent, " +
           "countIf(event = 'cli-hub call' and properties.source = 'cli' and properties.channel = 'cli-hub' and properties.is_agent = false) as cli_hub_human, " +
-          "countIf(event = 'cli-hub call' and properties.source = 'cli' and properties.channel = 'cli-hub' and properties.is_agent = true) as cli_hub_agent " +
-          "from events " +
-          "where timestamp >= parseDateTimeBestEffort('" + MIGRATION_STARTED_AT + "')"
+          "countIf(event = 'cli-hub call' and properties.source = 'cli' and properties.channel = 'cli-hub' and properties.is_agent = true) as cli_hub_agent, " +
+          "countIf((event = 'cli-install' or like(event, 'cli-install:%')) and properties.source = 'cli') as cli_install, " +
+          "countIf((event = 'cli-uninstall' or like(event, 'cli-uninstall:%')) and properties.source = 'cli') as cli_uninstall, " +
+          "countIf(event = 'cli-launch' and properties.source = 'cli') as cli_launch " +
+          "from events"
         );
         const response = await fetch(ANALYTICS_PROXY_URL, {
           method: 'POST',
@@ -2934,40 +2945,66 @@
         });
         if (!response.ok) throw new Error('posthog query http ' + response.status);
         const data = await response.json();
-        const row = (data.results && data.results[0]) || [0, 0, 0, 0];
-        const human = Number(row[0]) || 0;
-        const agent = Number(row[1]) || 0;
-        const cliHuman = Number(row[2]) || 0;
-        const cliAgent = Number(row[3]) || 0;
+        const row = (data.results && data.results[0]) || [0, 0, 0, 0, 0, 0, 0];
         return {
-          total: human + agent,
-          human,
-          agent,
-          cli_hub_total: cliHuman + cliAgent,
-          cli_hub_human: cliHuman,
-          cli_hub_agent: cliAgent,
+          human: Number(row[0]) || 0,
+          agent: Number(row[1]) || 0,
+          cli_hub_human: Number(row[2]) || 0,
+          cli_hub_agent: Number(row[3]) || 0,
+          cli_install: Number(row[4]) || 0,
+          cli_uninstall: Number(row[5]) || 0,
+          cli_launch: Number(row[6]) || 0,
         };
       }
 
-      function mergeStats(baseline, increment) {
+      async function fetchUmamiTotals() {
+        const totals = { ...ZERO_STATS };
+        const responses = await Promise.all(UMAMI_SITE_IDS.map((site) =>
+          fetch(ANALYTICS_PROXY_URL + 'umami/events?site=' + encodeURIComponent(site))
+            .then((r) => r.ok ? r.json() : [])
+            .catch(() => [])
+        ));
+        for (const rows of responses) {
+          if (!Array.isArray(rows)) continue;
+          for (const row of rows) {
+            const name = row && row.x;
+            const count = Number(row && row.y) || 0;
+            if (!name || !count) continue;
+            if (name === 'visit-human') totals.human += count;
+            else if (name === 'visit-agent') totals.agent += count;
+            else if (name === 'cli-install' || (typeof name === 'string' && name.startsWith('cli-install:'))) totals.cli_install += count;
+            else if (name === 'cli-uninstall' || (typeof name === 'string' && name.startsWith('cli-uninstall:'))) totals.cli_uninstall += count;
+          }
+        }
+        return totals;
+      }
+
+      function sumStats(a, b) {
+        const out = {};
+        for (const key of Object.keys(ZERO_STATS)) out[key] = (a[key] || 0) + (b[key] || 0);
+        return out;
+      }
+
+      function withDerivedTotals(s) {
+        // cli_hub_total bundles all cli-hub-sourced events so the footer's
+        // "cli-hub" number reflects end-to-end activity, not just raw
+        // invocations. The human/agent split stays tied to cli-hub call
+        // only, because Umami install/uninstall events don't carry is_agent.
         return {
-          total: baseline.total + increment.total,
-          human: baseline.human + increment.human,
-          agent: baseline.agent + increment.agent,
-          cli_hub_total: baseline.cli_hub_total + increment.cli_hub_total,
-          cli_hub_human: baseline.cli_hub_human + increment.cli_hub_human,
-          cli_hub_agent: baseline.cli_hub_agent + increment.cli_hub_agent,
+          ...s,
+          total: s.human + s.agent,
+          cli_hub_total: s.cli_hub_human + s.cli_hub_agent + s.cli_install + s.cli_uninstall + s.cli_launch,
         };
       }
 
       async function refreshVisitorStats() {
-        try {
-          const increment = await fetchPosthogIncrement();
-          applyVisitorStats(mergeStats(BASELINE_STATS, increment));
-          return true;
-        } catch (_) {
-          return false;
-        }
+        const [posthog, umami] = await Promise.allSettled([fetchPosthogTotals(), fetchUmamiTotals()]);
+        const ph = posthog.status === 'fulfilled' ? posthog.value : null;
+        const um = umami.status   === 'fulfilled' ? umami.value   : null;
+        if (!ph && !um) return false;
+        const merged = sumStats(ph || ZERO_STATS, um || ZERO_STATS);
+        applyVisitorStats(withDerivedTotals(merged));
+        return true;
       }
 
       async function loadVisitorStats() {

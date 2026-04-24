@@ -9,7 +9,14 @@ import click
 from cli_hub import __version__
 from cli_hub.registry import fetch_all_clis, get_cli, search_clis, list_categories
 from cli_hub.installer import install_cli, uninstall_cli, get_installed, update_cli
-from cli_hub.analytics import detect_invocation_context, track_install, track_uninstall, track_visit, track_first_run
+from cli_hub.analytics import (
+    detect_invocation_context,
+    track_first_run,
+    track_install,
+    track_launch,
+    track_uninstall,
+    track_visit,
+)
 
 
 def _invocation_command(ctx, version):
@@ -239,6 +246,7 @@ def launch(name, args):
         )
         raise SystemExit(1)
 
+    track_launch(name)
     os.execvp(entry, [entry] + list(args))
 
 

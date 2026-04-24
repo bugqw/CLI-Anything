@@ -1,3 +1,3 @@
 """cli-hub — Download, manage, and browse CLI-Anything harnesses."""
 
-__version__ = "0.2.2"
+__version__ = "0.2.3"

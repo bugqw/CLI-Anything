@@ -1,10 +1,31 @@
-# CALIBRE.md
+# Calibre: Project-Specific Analysis & SOP
 
-## Overview
+## Architecture Summary
 
-calibre is a Python/PyQt6 desktop application for ebook library management, format conversion, metadata editing, and content serving. Unlike some GUI-first tools, calibre already exposes a rich set of headless CLI tools, which makes it a strong fit for a cli-anything harness.
+calibre is an ebook management suite covering library operations, metadata editing,
+export, and format conversion. Unlike many GUI-first tools, calibre already
+ships mature native CLI binaries, so the harness strategy is to compose these
+commands into an agent-friendly, stateful interface.
 
-## Backend engine
+```
+┌──────────────────────────────────────────┐
+│              Calibre GUI                 │
+│  ┌──────────┐ ┌──────────┐ ┌──────────┐ │
+│  │ Library  │ │ Metadata │ │ Convert  │ │
+│  └────┬─────┘ └────┬─────┘ └────┬─────┘ │
+│       │             │            │       │
+│  ┌────┴─────────────┴────────────┴─────┐ │
+│  │   Calibre backend (db + metadata)   │ │
+│  │  SQLite library + conversion stack  │ │
+│  └─────────────────┬───────────────────┘ │
+│                    │                     │
+│   ┌────────────────┴──────────────────┐  │
+│   │ Native CLI binaries               │  │
+│   │ calibredb | ebook-meta |          │  │
+│   │ ebook-convert                     │  │
+│   └───────────────────────────────────┘  │
+└──────────────────────────────────────────┘
+```
 
 Primary backend components:
 - Library database: `src/calibre/db/backend.py`
@@ -16,9 +37,28 @@ Primary backend components:
 
 The GUI is primarily a PyQt6 frontend over these backend capabilities.
 
-## Existing native CLI tools
+## CLI Strategy: Native CLI Composition + Session Layer
 
-From `src/calibre/linux.py`, calibre already ships these console tools:
+The harness wraps real calibre binaries and adds:
+1. stable command groups for agents (`library`, `book`, `meta`, `convert`, `export`, `session`)
+2. consistent machine-readable output via `--json`
+3. REPL-first interactive flow with undo/redo session history
+4. explicit validation and clearer error reporting for automation
+
+### Core Domains
+
+| Domain | Module | Native Tool(s) | Key Operations |
+|--------|--------|----------------|----------------|
+| Library | `core/library.py` | `calibredb` | open/info/list-fields/stats |
+| Books | `core/books.py` | `calibredb` | add/list/get/search/remove/set-field |
+| Metadata | `core/metadata.py` | `ebook-meta`, `calibredb` | show/set/clear/set-cover |
+| Convert | `core/convert.py` | `ebook-convert` | formats/presets/run |
+| Export | `core/export.py` | `calibredb` | export book/catalog/backup |
+| Session | `core/session.py` | harness layer | status/undo/redo/history/save |
+
+### Native Tool Registry
+
+From `src/calibre/linux.py`, calibre ships these console tools:
 - `calibredb`
 - `ebook-convert`
 - `ebook-meta`
@@ -32,16 +72,50 @@ From `src/calibre/linux.py`, calibre already ships these console tools:
 - `calibre-complete`
 - `web2disk`
 
-For this harness, the most important are:
+Harness-critical tools:
 - `calibredb` for library inspection and mutation
-- `ebook-convert` for format conversion
 - `ebook-meta` for per-file metadata inspection/update
+- `ebook-convert` for format conversion
 
-## Native data model
+### Conversion Presets
 
-calibre libraries are directory-based and centered on `metadata.db` (SQLite). Book records map to directories containing one or more format files plus metadata. This means the harness does not need to emulate GUI state; it can operate against the library and file model directly.
+Current harness-facing presets:
+- `kindle`
+- `tablet`
+- `generic-epub`
 
-## GUI toolkit
+These are mapped to curated `ebook-convert` argument bundles for stable agent use.
+
+### Translation Gap: Low Risk
+
+There is minimal translation gap because the harness delegates core behavior to
+calibre's own binaries rather than reimplementing internals. The main harness
+responsibility is orchestration, validation, and normalized output.
+
+## Data Model and Mapping
+
+calibre libraries are directory-based and centered on `metadata.db` (SQLite).
+Book records map to folders containing one or more format files plus metadata.
+This allows direct CLI operations without emulating GUI state.
+
+### Library/book mapping (`calibredb`)
+- list books -> `calibredb list --for-machine`
+- search books -> `calibredb list --search ... --for-machine`
+- add book -> `calibredb add`
+- remove book -> `calibredb remove`
+- show metadata -> `calibredb show_metadata`
+- export books -> `calibredb export`
+- backup metadata -> `calibredb backup_metadata`
+
+### File metadata mapping (`ebook-meta`)
+- inspect file metadata -> `ebook-meta <file>`
+- mutate file metadata -> `ebook-meta <file> --title ... --authors ...`
+- library-record metadata update -> `calibredb set_metadata <id> <opf-file>`
+
+### Conversion mapping (`ebook-convert`)
+- convert formats -> `ebook-convert input.epub output.mobi ...`
+
+## GUI Toolkit
 
 The GUI uses PyQt6 through calibre's lazy-loading `qt` shim.
 
@@ -50,50 +124,10 @@ Relevant paths:
 - `src/calibre/gui2/`
 - `pyproject.toml`
 
-## Command mapping strategy
-
-### Library operations
-Map to `calibredb` subcommands:
-- list books → `calibredb list --for-machine`
-- search books → `calibredb list --search ... --for-machine`
-- add book → `calibredb add`
-- remove book → `calibredb remove`
-- show metadata → `calibredb show_metadata`
-- export books → `calibredb export`
-- backup metadata → `calibredb backup_metadata`
-
-### Metadata operations
-Map to:
-- `ebook-meta <file>` for file metadata inspection
-- `ebook-meta <file> --title ... --authors ...` for file metadata mutation
-- `calibredb set_metadata <id> <opf-file>` when operating on library records via OPF
-
-### Conversion operations
-Map to:
-- `ebook-convert input.epub output.mobi ...`
-
-## Harness design implications
-
-Because calibre already provides robust CLIs, this harness should:
-1. Wrap real calibre binaries via subprocess
-2. Add a stateful session layer on top
-3. Normalize outputs into friendly text / JSON
-4. Provide REPL UX for interactive agent workflows
-5. Avoid reimplementing calibre internals in Python when a real CLI exists
-
-## Recommended command groups
-
-- `library` — open/info/list-fields/stats
-- `book` — add/remove/list/get/search/set-field
-- `meta` — show/set/set-cover/clear
-- `convert` — formats/run/presets
-- `export` — book/catalog/backup
-- `session` — status/undo/redo/history
-
 ## Constraints
 
-- Real calibre tools are a hard dependency for E2E workflows
-- The harness must fail clearly if calibre binaries are not on PATH
-- REPL should be the default entry behavior
+- Real calibre tools are hard dependencies for E2E workflows
+- The harness must fail clearly if required binaries are not on PATH
+- REPL should remain the default entry behavior
 - All commands should support `--json`
 - Session persistence should use locked JSON writes

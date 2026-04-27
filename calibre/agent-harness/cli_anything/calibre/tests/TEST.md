@@ -185,3 +185,34 @@ Commands:
 ```
 
 Installed entry point: `D:\AAA_work\openP\.venv\Scripts\cli-anything-calibre.EXE`
+
+---
+
+## Agent Test (CLI-only)
+
+Prompt specification:
+- `../../../AGENT_TEST_PROMPT.md`
+
+### Agent test result
+
+- Scope: CLI-only execution by an AI agent (no GUI operations during task execution)
+- Task chain: `library stats` -> `book add` -> `book search` -> `export book` -> `convert run` -> `meta show`
+- Result: all task-chain commands returned exit code `0`
+- Output artifact: `D:\AgentTest\out\converted\agent-test.mobi` (non-zero size)
+
+Final structured output:
+
+```json
+FINAL_RESULT={"book_id":1,"export_dir":"D:\\AgentTest\\out","exported_epub":"D:\\AgentTest\\out\\Agent Test Book - OpenCode Bot.epub","converted_file":"D:\\AgentTest\\out\\converted\\agent-test.mobi","all_exit_zero":true}
+```
+
+### GUI round-trip validation
+
+- Opened the same library path in Calibre GUI: `D:\Books\Calibre Library`
+- Verified library record consistency for the CLI-created book:
+  - title: `Agent Test Book`
+  - author: `OpenCode Bot`
+- Verified exported/converted files are readable artifacts:
+  - exported EPUB exists and is non-empty
+  - converted MOBI exists and is non-empty
+- Conclusion: CLI mutations and GUI-visible library state are consistent for this workflow.

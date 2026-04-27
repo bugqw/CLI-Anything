@@ -118,8 +118,10 @@ def handle_error(func):
 @click.option("--json", "use_json", is_flag=True, help="Output as JSON")
 @click.option("--project", "project_path", type=str, default=None,
               help="Path to OBS scene collection JSON file")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False,
+              help="Run command without saving changes to disk")
 @click.pass_context
-def cli(ctx, use_json, project_path):
+def cli(ctx, use_json, project_path, dry_run):
     """OBS Studio CLI -- Stateful scene collection editing from the command line.
 
     Run without a subcommand to enter interactive REPL mode.
@@ -135,6 +137,21 @@ def cli(ctx, use_json, project_path):
 
     if ctx.invoked_subcommand is None:
         ctx.invoke(repl, project_path=None)
+
+
+@cli.result_callback()
+def auto_save_on_exit(result, use_json, project_path, dry_run, **kwargs):
+    """Auto-save project after one-shot commands if state was modified."""
+    if _repl_mode:
+        return
+    if dry_run:
+        return
+    sess = get_session()
+    if sess.has_project() and sess._modified and sess.project_path:
+        try:
+            sess.save_session()
+        except Exception as e:
+            click.echo(f"Warning: Auto-save failed: {e}", err=True)
 
 
 # -- Project Commands --------------------------------------------------------

@@ -73,7 +73,7 @@ This command implements the complete cli-anything methodology to build a product
 - Extracts CLI metadata using `skill_generator.py`
 - Generates SKILL.md with YAML frontmatter and Markdown body
 - Includes command groups, examples, and agent-specific guidance
-- Outputs to `cli_anything/<software>/skills/SKILL.md` inside the Python package
+- Outputs the canonical skill to `skills/cli-anything-<software>/SKILL.md` and refreshes the packaged compatibility copy at `cli_anything/<software>/skills/SKILL.md`
 - Makes the CLI discoverable and usable by AI agents
 
 ### Phase 7: PyPI Publishing and Installation
@@ -100,13 +100,19 @@ This command implements the complete cli-anything methodology to build a product
             │   ├── session.py
             │   ├── export.py
             │   └── ...
-            ├── skills/
-            │   └── SKILL.md       # AI-discoverable skill definition
             ├── utils/             # Utilities
             └── tests/
                 ├── TEST.md        # Test plan and results
                 ├── test_core.py   # Unit tests
                 └── test_full_e2e.py # E2E tests
+```
+
+Canonical repo-root skill output:
+
+```
+skills/
+└── cli-anything-<software>/
+    └── SKILL.md
 ```
 
 ## Example
@@ -118,6 +124,12 @@ This command implements the complete cli-anything methodology to build a product
 # Build from a GitHub repo
 /cli-anything https://github.com/blender/blender
 ```
+
+## Auto-Save + --dry-run (Required for Session-Based CLIs)
+
+**Session-based CLIs must auto-save after one-shot mutations.** Without this, one-shot commands silently lose changes because `save_session()` is never called before the process exits. A `--dry-run` flag must also be provided to suppress the save.
+
+See [`guides/auto-save-dry-run.md`](../guides/auto-save-dry-run.md) for the full pattern, code examples, and when it applies.
 
 ## Success Criteria
 
@@ -132,3 +144,4 @@ The command succeeds when:
 8. SKILL.md is generated with proper YAML frontmatter and command documentation
 9. setup.py is created and local installation works
 10. CLI is available in PATH as `cli-anything-<software>`
+11. **Session-based CLIs implement auto-save + `--dry-run`** (see [guide](../guides/auto-save-dry-run.md))

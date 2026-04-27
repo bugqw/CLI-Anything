@@ -113,12 +113,25 @@ def _save_current(ctx: click.Context) -> None:
 @click.group(invoke_without_command=True)
 @click.option("--json", "use_json", is_flag=True, default=False, help="Output in JSON format.")
 @click.option("--project", "-p", type=click.Path(), default=None, help="Path to project JSON file.")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False,
+              help="Run command without saving changes to disk")
 @click.pass_context
-def cli(ctx, use_json, project):
+def cli(ctx, use_json, project, dry_run):
     """cli-anything-krita: CLI harness for Krita digital painting."""
     ctx.ensure_object(dict)
     ctx.obj["json"] = use_json
     ctx.obj["project"] = project
+
+    # Auto-save after one-shot commands when --project is used
+    is_oneshot = ctx.invoked_subcommand is not None
+
+    @ctx.call_on_close
+    def _auto_save():
+        if dry_run or not is_oneshot:
+            return
+        if _current_project and _current_project_path:
+            save_project(_current_project, _current_project_path)
+
     if ctx.invoked_subcommand is None:
         ctx.invoke(repl, project_path=project)
 

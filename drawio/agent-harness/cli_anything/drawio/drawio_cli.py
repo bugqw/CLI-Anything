@@ -130,8 +130,10 @@ def handle_error(func):
 @click.option("--json", "json_mode", is_flag=True, help="Output in JSON format")
 @click.option("--session", "session_id", default=None, help="Session ID to use/resume")
 @click.option("--project", "project_path", default=None, help="Open a project file")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False,
+              help="Run command without saving changes to disk")
 @click.pass_context
-def cli(ctx, json_mode, session_id, project_path):
+def cli(ctx, json_mode, session_id, project_path, dry_run):
     """Draw.io CLI — Diagram creation from the command line.
 
     A stateful CLI for manipulating draw.io diagram files.
@@ -153,6 +155,8 @@ def cli(ctx, json_mode, session_id, project_path):
     # Auto-save on exit when --project was used and project was modified
     @ctx.call_on_close
     def _auto_save():
+        if dry_run:
+            return
         if project_path and _session and _session.is_open and _session.is_modified:
             _session.save_project()
 

@@ -40,8 +40,10 @@ def emit(data, message: str | None = None) -> None:
 @click.group(invoke_without_command=True)
 @click.option("--json", "json_mode", is_flag=True, help="Emit machine-readable JSON")
 @click.option("--project", "project_path", default=None, help="Open a Mermaid project file")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False,
+              help="Run command without saving changes to disk")
 @click.pass_context
-def cli(ctx, json_mode: bool, project_path: str | None) -> None:
+def cli(ctx, json_mode: bool, project_path: str | None, dry_run: bool) -> None:
     """CLI harness for Mermaid Live Editor state files and renderer URLs."""
     global _json_output, _session
     _json_output = json_mode
@@ -51,6 +53,8 @@ def cli(ctx, json_mode: bool, project_path: str | None) -> None:
 
     @ctx.call_on_close
     def _auto_save() -> None:
+        if dry_run:
+            return
         if project_path and _session and _session.is_open and _session.modified:
             _session.save_project()
 

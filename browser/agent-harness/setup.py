@@ -1,58 +1,77 @@
 #!/usr/bin/env python3
-"""
-setup.py for cli-anything-browser
-
-Install with: pip install -e .
-Or publish to PyPI: python -m build && twine upload dist/*
-"""
-
+from pathlib import Path
 from setuptools import setup, find_namespace_packages
 
-with open("cli_anything/browser/README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+ROOT = Path(__file__).parent
+README = ROOT / "cli_anything/browser/README.md"
+
+def read_readme():
+    try:
+        return README.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ""
 
 setup(
     name="cli-anything-browser",
     version="1.0.0",
-    author="cli-anything contributors",
-    author_email="",
-    description="CLI harness for Browser automation via DOMShell MCP server. Maps Chrome's Accessibility Tree to a virtual filesystem for agent-native browser automation.",
-    long_description=long_description,
+
+    author="CLI Anything Contributors",
+    description="CLI harness for browser automation via DOMShell MCP server",
+    long_description=read_readme(),
     long_description_content_type="text/markdown",
+
     url="https://github.com/HKUDS/CLI-Anything",
+    project_urls={
+        "Homepage": "https://github.com/HKUDS/CLI-Anything",
+        "Issues": "https://github.com/HKUDS/CLI-Anything/issues",
+    },
+
+    license="MIT",
+
     packages=find_namespace_packages(include=["cli_anything.*"]),
-    classifiers=[
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Developers",
-        "Topic :: Software Development :: Libraries :: Python Modules",
-        "Topic :: Software Development :: Testing",
-        "Topic :: Internet :: WWW/HTTP :: Browsers",
-        "License :: OSI Approved :: MIT License",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-        "Programming Language :: Python :: 3.12",
-    ],
     python_requires=">=3.10",
+
     install_requires=[
-        "click>=8.0.0",
-        "prompt-toolkit>=3.0.0",
-        "mcp>=0.1.0",
+        "click>=8.1,<9.0",
+        "prompt-toolkit>=3.0,<4.0",
+        "mcp>=0.1.0,<1.0.0",
     ],
+
     extras_require={
         "dev": [
-            "pytest>=7.0.0",
-            "pytest-cov>=4.0.0",
+            "pytest>=7",
+            "pytest-cov>=4",
+            "build",
+            "twine",
         ],
     },
+
     entry_points={
         "console_scripts": [
             "cli-anything-browser=cli_anything.browser.browser_cli:main",
         ],
     },
+
     package_data={
         "cli_anything.browser": ["skills/*.md"],
     },
+
     include_package_data=True,
     zip_safe=False,
+
+    keywords="cli browser automation mcp domshell ai-agent",
+
+    classifiers=[
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "Topic :: Internet :: WWW/HTTP :: Browsers",
+        "Topic :: Software Development :: Testing",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "License :: OSI Approved :: MIT License",
+
+        "Programming Language :: Python :: 3 :: Only",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
+    ],
 )

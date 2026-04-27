@@ -35,6 +35,7 @@ FILTER_REGISTRY = {
     },
     "fade_in_video": {
         "mlt_service": "brightness",
+        "kdenlive_name": "fade_from_black",
         "category": "transition",
         "params": {
             "duration": {"type": "float", "default": 1.0, "min": 0.01, "max": 60.0},
@@ -42,6 +43,7 @@ FILTER_REGISTRY = {
     },
     "fade_out_video": {
         "mlt_service": "brightness",
+        "kdenlive_name": "fade_to_black",
         "category": "transition",
         "params": {
             "duration": {"type": "float", "default": 1.0, "min": 0.01, "max": 60.0},
@@ -49,6 +51,7 @@ FILTER_REGISTRY = {
     },
     "fade_in_audio": {
         "mlt_service": "volume",
+        "kdenlive_name": "fadein",
         "category": "transition",
         "params": {
             "duration": {"type": "float", "default": 1.0, "min": 0.01, "max": 60.0},
@@ -56,6 +59,7 @@ FILTER_REGISTRY = {
     },
     "fade_out_audio": {
         "mlt_service": "volume",
+        "kdenlive_name": "fadeout",
         "category": "transition",
         "params": {
             "duration": {"type": "float", "default": 1.0, "min": 0.01, "max": 60.0},
@@ -87,6 +91,7 @@ FILTER_REGISTRY = {
     },
     "speed": {
         "mlt_service": "timewarp",
+        "kdenlive_name": "speed",
         "category": "effect",
         "params": {
             "speed": {"type": "float", "default": 1.0, "min": 0.01, "max": 100.0},

@@ -39,6 +39,8 @@ from cli_anything.inkscape.core import export as export_mod
 _session: Optional[Session] = None
 _json_output = False
 _repl_mode = False
+_auto_save = False
+_dry_run = False
 
 
 def get_session() -> Session:
@@ -46,6 +48,24 @@ def get_session() -> Session:
     if _session is None:
         _session = Session()
     return _session
+
+
+def _load_or_seed_project(project_path: str) -> None:
+    """Open an existing project path or seed a new in-memory document for it."""
+    sess = get_session()
+    if sess.has_project():
+        return
+    if os.path.exists(project_path):
+        proj = doc_mod.open_document(project_path)
+    else:
+        default_name = os.path.basename(project_path)
+        if default_name.endswith(".inkscape-cli.json"):
+            default_name = default_name[: -len(".inkscape-cli.json")]
+        else:
+            default_name = os.path.splitext(default_name)[0]
+        default_name = default_name or "untitled"
+        proj = doc_mod.create_document(name=default_name)
+    sess.set_project(proj, project_path)
 
 
 def output(data, message: str = ""):
@@ -120,23 +140,47 @@ def handle_error(func):
 @click.option("--json", "use_json", is_flag=True, help="Output as JSON")
 @click.option("--project", "project_path", type=str, default=None,
               help="Path to .inkscape-cli.json project file")
+@click.option("-s", "--save", "auto_save", is_flag=True,
+              help="Auto-save project after each mutation command (one-shot mode)")
+@click.option("--dry-run", "dry_run", is_flag=True, default=False,
+              help="Run command without saving changes to disk")
 @click.pass_context
-def cli(ctx, use_json, project_path):
+def cli(ctx, use_json, project_path, auto_save, dry_run):
     """Inkscape CLI — Stateful vector graphics editing from the command line.
 
     Run without a subcommand to enter interactive REPL mode.
+
+    Use -s/--save to automatically save changes after each mutation command.
+    This is useful in one-shot mode where each command runs in a new process.
     """
-    global _json_output
+    global _json_output, _auto_save, _dry_run
     _json_output = use_json
+    _auto_save = auto_save
+    _dry_run = dry_run
 
     if project_path:
-        sess = get_session()
-        if not sess.has_project():
-            proj = doc_mod.open_document(project_path)
-            sess.set_project(proj, project_path)
+        _load_or_seed_project(project_path)
+
+    # Register auto-save callback to run after each command
+    ctx.call_on_close(_auto_save_callback)
 
     if ctx.invoked_subcommand is None:
         ctx.invoke(repl, project_path=None)
+
+
+def _auto_save_callback():
+    """Auto-save callback that runs after each command."""
+    global _auto_save, _session, _dry_run
+    if _dry_run:
+        return
+    if _auto_save and _session and _session.has_project() and _session._modified:
+        # Don't auto-save if we're in REPL mode (user can explicitly save)
+        if not _repl_mode:
+            try:
+                saved = _session.save_session()
+                click.echo(f"Auto-saved to: {saved}")
+            except Exception as e:
+                click.echo(f"Auto-save failed: {e}", err=True)
 
 
 # ── Document Commands ───────────────────────────────────────────
@@ -415,16 +459,22 @@ def text():
 @click.option("--font-weight", default="normal", help="Font weight")
 @click.option("--fill", default="#000000", help="Text color")
 @click.option("--text-anchor", default="start", help="Alignment: start, middle, end")
+@click.option("--box-width", type=float, default=None, help="Optional text box width for wrapping")
+@click.option("--box-height", type=float, default=None, help="Optional text box height for wrapping")
+@click.option("--line-height", type=float, default=1.2, help="Line height multiplier")
 @click.option("--name", "-n", default=None)
 @handle_error
-def text_add(text, x, y, font_family, font_size, font_weight, fill, text_anchor, name):
+def text_add(text, x, y, font_family, font_size, font_weight, fill, text_anchor,
+             box_width, box_height, line_height, name):
     """Add a text element."""
     sess = get_session()
     sess.snapshot("Add text")
     obj = text_mod.add_text(sess.get_project(), text=text, x=x, y=y,
                              font_family=font_family, font_size=font_size,
                              font_weight=font_weight, fill=fill,
-                             text_anchor=text_anchor, name=name)
+                             text_anchor=text_anchor, box_width=box_width,
+                             box_height=box_height, line_height=line_height,
+                             name=name)
     output(obj, f"Added text: {obj['name']}")
 
 
@@ -976,9 +1026,7 @@ def repl(project_path):
     skin = ReplSkin("inkscape", version="1.0.0")
 
     if project_path:
-        sess = get_session()
-        proj = doc_mod.open_document(project_path)
-        sess.set_project(proj, project_path)
+        _load_or_seed_project(project_path)
 
     skin.print_banner()
 

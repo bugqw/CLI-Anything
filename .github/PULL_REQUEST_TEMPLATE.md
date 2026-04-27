@@ -8,7 +8,8 @@ Fixes #<!-- issue number -->
 
 <!-- Check the one that applies: -->
 
-- [ ] **New Software CLI** — adds a CLI harness for a new application
+- [ ] **New Software CLI (in-repo)** — adds a CLI harness inside this monorepo
+- [ ] **New Software CLI (standalone repo)** — registry-only PR pointing to an external repo
 - [ ] **New Feature** — adds new functionality to an existing harness or the plugin
 - [ ] **Bug Fix** — fixes incorrect behavior
 - [ ] **Documentation** — updates docs only
@@ -16,17 +17,29 @@ Fixes #<!-- issue number -->
 
 ---
 
-### For New Software CLIs
+### For New Software CLIs (in-repo)
 
-<!-- If this PR adds a new software CLI, ALL items below must be checked. -->
+<!-- If this PR adds a new software CLI inside the monorepo, ALL items below must be checked. -->
 
 - [ ] `<SOFTWARE>.md` SOP document exists at `<software>/agent-harness/<SOFTWARE>.md`
-- [ ] `SKILL.md` exists inside the Python package (`cli_anything/<software>/SKILL.md`)
+- [ ] Canonical `SKILL.md` exists at `skills/cli-anything-<software>/SKILL.md`
+- [ ] Packaged compatibility `SKILL.md` exists at `cli_anything/<software>/skills/SKILL.md`
 - [ ] Unit tests at `cli_anything/<software>/tests/test_core.py` are present and pass without backend
 - [ ] E2E tests at `cli_anything/<software>/tests/test_full_e2e.py` are present
 - [ ] `README.md` includes the new software (with link to harness directory)
-- [ ] `registry.json` includes an entry for the new software (for the [CLI-Hub](https://hkuds.github.io/CLI-Anything/hub/))
+- [ ] `registry.json` includes an entry with `source_url: null` (see [Contributing guide](CONTRIBUTING.md#registry-fields))
 - [ ] `repl_skin.py` in `utils/` is an unmodified copy from the plugin
+
+### For New Software CLIs (standalone repo)
+
+<!-- If this PR only adds a registry.json entry pointing to an external repo, ALL items below must be checked. -->
+
+- [ ] CLI is installable via `pip install <package-name>` or a `pip install git+https://...` URL
+- [ ] `SKILL.md` exists in the external repo
+- [ ] External repo has its own test suite
+- [ ] `registry.json` entry includes `source_url` pointing to the external repo
+- [ ] `registry.json` entry includes `skill_md` with full URL to the external SKILL.md
+- [ ] `install_cmd` in `registry.json` works (tested locally)
 
 ### For Existing CLI Modifications
 
